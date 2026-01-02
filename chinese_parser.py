@@ -5,6 +5,7 @@ import numpy as np
 import pptree
 import json
 import copy
+import jieba
 
 from collections import namedtuple
 from collections import defaultdict
@@ -20,6 +21,8 @@ PREP = "PREP"
 PREP_P = "PREP_P"
 ADJ = "ADJ"
 ADVERB = "ADVERB"
+PRED = "PRED" # 表语区
+QUANT = "QUANT" # 量词区
 
 # Unique to Russian
 NOM = "NOM"
@@ -53,6 +56,187 @@ FiringRule = namedtuple('FiringRule', ['action'])
 OtherRule = namedtuple('OtherRule', ['action'])
 
 def generic_noun(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		FiberRule(DISINHIBIT, LEX, SUBJ, 0), 
+		FiberRule(DISINHIBIT, LEX, OBJ, 0),
+		FiberRule(DISINHIBIT, LEX, PRED, 0),
+		FiberRule(DISINHIBIT, QUANT, SUBJ, 0),
+		FiberRule(DISINHIBIT, QUANT, OBJ, 0),
+		FiberRule(DISINHIBIT, QUANT, PRED, 0),
+		FiberRule(DISINHIBIT, ADJ, SUBJ, 0),
+		FiberRule(DISINHIBIT, ADJ, OBJ, 0),
+		FiberRule(DISINHIBIT, ADJ, PRED, 0),
+		FiberRule(DISINHIBIT, VERB, OBJ, 0),
+		FiberRule(DISINHIBIT, VERB, PRED, 0),
+		],
+		"POST_RULES": [
+		AreaRule(INHIBIT, QUANT, 0),
+		AreaRule(INHIBIT, ADJ, 0),
+		FiberRule(INHIBIT, LEX, SUBJ, 0),
+		FiberRule(INHIBIT, LEX, OBJ, 0),
+		FiberRule(INHIBIT, LEX, PRED, 0),
+		FiberRule(INHIBIT, ADJ, SUBJ, 0),
+		FiberRule(INHIBIT, ADJ, OBJ, 0),
+		FiberRule(INHIBIT, ADJ, PRED, 0),
+		FiberRule(INHIBIT, QUANT, SUBJ, 0),
+		FiberRule(INHIBIT, QUANT, OBJ, 0),
+		FiberRule(INHIBIT, QUANT, PRED, 0),
+		FiberRule(INHIBIT, VERB, OBJ, 0),
+		FiberRule(INHIBIT, VERB, PRED, 0),
+		FiberRule(DISINHIBIT, LEX, SUBJ, 1),
+		FiberRule(DISINHIBIT, LEX, OBJ, 1),
+		FiberRule(DISINHIBIT, LEX, PRED, 1),
+		FiberRule(DISINHIBIT, QUANT, SUBJ, 1),
+		FiberRule(DISINHIBIT, QUANT, OBJ, 1),
+		FiberRule(DISINHIBIT, QUANT, PRED, 1),
+		FiberRule(DISINHIBIT, ADJ, SUBJ, 1),
+		FiberRule(DISINHIBIT, ADJ, OBJ, 1),
+		FiberRule(DISINHIBIT, ADJ, PRED, 1),
+		FiberRule(INHIBIT, VERB, ADJ, 0),
+		]
+	}
+
+def generic_trans_verb(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		FiberRule(DISINHIBIT, LEX, VERB, 0),
+		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
+		FiberRule(DISINHIBIT, VERB, ADVERB, 0),
+		AreaRule(DISINHIBIT, ADVERB, 1),
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, VERB, 0),
+		AreaRule(DISINHIBIT, OBJ, 0),
+		AreaRule(INHIBIT, SUBJ, 0),
+		AreaRule(INHIBIT, ADVERB, 0),
+		]
+	}
+
+def generic_intrans_verb(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		FiberRule(DISINHIBIT, LEX, VERB, 0),
+		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
+		FiberRule(DISINHIBIT, VERB, ADVERB, 0),
+		AreaRule(DISINHIBIT, ADVERB, 1),
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, VERB, 0),
+		AreaRule(INHIBIT, SUBJ, 0),
+		AreaRule(INHIBIT, ADVERB, 0),
+		]
+	}
+
+def generic_copula(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		FiberRule(DISINHIBIT, LEX, VERB, 0),
+		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, VERB, 0),
+		AreaRule(DISINHIBIT, PRED, 0),       # 开启表语区（用于名词表语）
+		AreaRule(INHIBIT, SUBJ, 0),
+		FiberRule(DISINHIBIT, VERB, PRED, 0), # VERB → PRED（系动词连接名词表语）
+		FiberRule(DISINHIBIT, VERB, ADJ, 0),  # VERB → ADJ（系动词连接形容词表语）
+		]
+	}
+
+def generic_adverb(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		AreaRule(DISINHIBIT, ADVERB, 0),
+		FiberRule(DISINHIBIT, LEX, ADVERB, 0)
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, ADVERB, 0),
+		AreaRule(INHIBIT, ADVERB, 1),
+		]
+
+	}
+
+def generic_determinant(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		AreaRule(DISINHIBIT, DET, 0),
+		FiberRule(DISINHIBIT, LEX, DET, 0)
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, DET, 0),
+		FiberRule(INHIBIT, VERB, ADJ, 0),
+		]
+	}
+
+def generic_preposition(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+			AreaRule(DISINHIBIT, PREP, 0),
+			FiberRule(DISINHIBIT, LEX, PREP, 0),
+		],
+		"POST_RULES": [
+			FiberRule(INHIBIT, LEX, PREP, 0),
+			AreaRule(DISINHIBIT, PREP_P, 0),
+			FiberRule(INHIBIT, LEX, SUBJ, 1),
+			FiberRule(INHIBIT, LEX, OBJ, 1),
+			FiberRule(INHIBIT, DET, SUBJ, 1),
+			FiberRule(INHIBIT, DET, OBJ, 1),
+			FiberRule(INHIBIT, ADJ, SUBJ, 1),
+			FiberRule(INHIBIT, ADJ, OBJ, 1),
+		]
+	}
+
+def generic_quantifier(index):
+    return {
+        "index": index,
+        "PRE_RULES": [
+            AreaRule(DISINHIBIT, DET, 0),
+            FiberRule(DISINHIBIT, LEX, DET, 0)
+        ],
+        "POST_RULES": [
+            FiberRule(INHIBIT, LEX, DET, 0),
+            FiberRule(INHIBIT, VERB, ADJ, 0),
+        ]
+    }
+
+def generic_adjective(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		AreaRule(DISINHIBIT, ADJ, 0),
+		FiberRule(DISINHIBIT, LEX, ADJ, 0)
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, ADJ, 0),
+		# 不抑制 VERB→ADJ，让系动词能连接形容词表语
+		FiberRule(INHIBIT, ADJ, SUBJ, 0),  # 形容词处理后关闭与已固定主语的连接
+		FiberRule(INHIBIT, ADJ, OBJ, 0),   # 形容词处理后关闭与已固定宾语的连接
+		]
+
+	}
+
+def generic_english_adjective(index):
+	return {
+		"index": index,
+		"PRE_RULES": [
+		AreaRule(DISINHIBIT, ADJ, 0),
+		FiberRule(DISINHIBIT, LEX, ADJ, 0)
+		],
+		"POST_RULES": [
+		FiberRule(INHIBIT, LEX, ADJ, 0),
+		FiberRule(INHIBIT, VERB, ADJ, 0),
+		]
+
+	}
+
+def generic_english_noun(index):
 	return {
 		"index": index,
 		"PRE_RULES": [
@@ -99,136 +283,26 @@ def generic_noun(index):
 		]
 	}
 
-def generic_trans_verb(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		FiberRule(DISINHIBIT, LEX, VERB, 0),
-		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
-		FiberRule(DISINHIBIT, VERB, ADVERB, 0),
-		AreaRule(DISINHIBIT, ADVERB, 1),
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, VERB, 0),
-		AreaRule(DISINHIBIT, OBJ, 0),
-		AreaRule(INHIBIT, SUBJ, 0),
-		AreaRule(INHIBIT, ADVERB, 0),
-		FiberRule(DISINHIBIT, PREP_P, VERB, 0),
-		]
-	}
-
-def generic_intrans_verb(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		FiberRule(DISINHIBIT, LEX, VERB, 0),
-		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
-		FiberRule(DISINHIBIT, VERB, ADVERB, 0),
-		AreaRule(DISINHIBIT, ADVERB, 1),
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, VERB, 0),
-		AreaRule(INHIBIT, SUBJ, 0),
-		AreaRule(INHIBIT, ADVERB, 0),
-		FiberRule(DISINHIBIT, PREP_P, VERB, 0),
-		]
-	}
-
-def generic_copula(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		FiberRule(DISINHIBIT, LEX, VERB, 0),
-		FiberRule(DISINHIBIT, VERB, SUBJ, 0),
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, VERB, 0),
-		AreaRule(DISINHIBIT, OBJ, 0),
-		AreaRule(INHIBIT, SUBJ, 0),
-		FiberRule(DISINHIBIT, ADJ, VERB, 0)
-		]
-	}
-
-def generic_adverb(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		AreaRule(DISINHIBIT, ADVERB, 0),
-		FiberRule(DISINHIBIT, LEX, ADVERB, 0)
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, ADVERB, 0),
-		AreaRule(INHIBIT, ADVERB, 1),
-		]
-
-	}
-
-def generic_determinant(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		AreaRule(DISINHIBIT, DET, 0),
-		FiberRule(DISINHIBIT, LEX, DET, 0)
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, DET, 0),
-		FiberRule(INHIBIT, VERB, ADJ, 0),
-		]
-	}
-
-def generic_adjective(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-		AreaRule(DISINHIBIT, ADJ, 0),
-		FiberRule(DISINHIBIT, LEX, ADJ, 0)
-		],
-		"POST_RULES": [
-		FiberRule(INHIBIT, LEX, ADJ, 0),
-		FiberRule(INHIBIT, VERB, ADJ, 0),
-		]
-
-	}
-
-def generic_preposition(index):
-	return {
-		"index": index,
-		"PRE_RULES": [
-			AreaRule(DISINHIBIT, PREP, 0),
-			FiberRule(DISINHIBIT, LEX, PREP, 0),
-		],
-		"POST_RULES": [
-			FiberRule(INHIBIT, LEX, PREP, 0),
-			AreaRule(DISINHIBIT, PREP_P, 0),
-			FiberRule(INHIBIT, LEX, SUBJ, 1),
-			FiberRule(INHIBIT, LEX, OBJ, 1),
-			FiberRule(INHIBIT, DET, SUBJ, 1),
-			FiberRule(INHIBIT, DET, OBJ, 1),
-			FiberRule(INHIBIT, ADJ, SUBJ, 1),
-			FiberRule(INHIBIT, ADJ, OBJ, 1),
-		]
-	}
-
 LEXEME_DICT = {
 	"the" : generic_determinant(0),
 	"a": generic_determinant(1),
-	"dogs" : generic_noun(2),
-	"cats" : generic_noun(3),
-	"mice" : generic_noun(4),
-	"people" : generic_noun(5),
+	"dogs" : generic_english_noun(2),
+	"cats" : generic_english_noun(3),
+	"mice" : generic_english_noun(4),
+	"people" : generic_english_noun(5),
 	"chase" : generic_trans_verb(6),
 	"love" : generic_trans_verb(7),
 	"bite" : generic_trans_verb(8),
 	"of" : generic_preposition(9),
-	"big": generic_adjective(10),
-	"bad": generic_adjective(11),
+	"big": generic_english_adjective(10),
+	"bad": generic_english_adjective(11),
 	"run": generic_intrans_verb(12),
 	"fly": generic_intrans_verb(13),
 	"quickly": generic_adverb(14),
 	"in": generic_preposition(15),
 	"are": generic_copula(16),
-	"man": generic_noun(17),
-	"woman": generic_noun(18),
+	"man": generic_english_noun(17),
+	"woman": generic_english_noun(18),
 	"saw": generic_trans_verb(19),
 }
 
@@ -315,6 +389,58 @@ RUSSIAN_LEXEME_DICT = {
 	"dayet": generic_russian_ditransitive_verb(4)
 }
 
+QUANT = "QUANT"
+
+def generic_chinese_quantifier(index):
+    return {
+        "index": index,
+        "PRE_RULES": [
+            AreaRule(DISINHIBIT, QUANT, 0),
+            FiberRule(DISINHIBIT, LEX, QUANT, 0)
+        ],
+        "POST_RULES": [
+            FiberRule(INHIBIT, LEX, QUANT, 0),
+            FiberRule(DISINHIBIT, QUANT, SUBJ, 0),
+            FiberRule(DISINHIBIT, QUANT, OBJ, 0),
+        ]
+    }
+
+def generic_predicative_adjective(index):
+    return {
+        "index": index,
+        "PRE_RULES": [
+            FiberRule(DISINHIBIT, LEX, VERB, 0),
+            FiberRule(DISINHIBIT, VERB, SUBJ, 0),
+            FiberRule(DISINHIBIT, VERB, ADVERB, 0),
+            AreaRule(DISINHIBIT, ADVERB, 1),
+        ],
+        "POST_RULES": [
+            FiberRule(INHIBIT, LEX, VERB, 0),
+            AreaRule(INHIBIT, SUBJ, 0),
+            AreaRule(INHIBIT, ADVERB, 0),
+        ]
+    }
+
+CHINESE_LEXEME_DICT = {
+    "我": generic_noun(0),
+    "你": generic_noun(1),
+    "人类": generic_noun(2),
+    "球": generic_noun(3),
+    "无可奈何地": generic_adverb(4),
+    "愤怒地": generic_adverb(5),
+    "真": generic_adverb(6),
+    "并非": generic_copula(7), # 并非作为系动词处理，连接主语和表语
+    "红温了": generic_intrans_verb(8),
+    "踢": generic_trans_verb(9),
+    "善良": generic_predicative_adjective(10), # 作谓语
+    "愚蠢的": generic_adjective(11),
+    "硬邦邦的": generic_adjective(12),
+    "聪明的": generic_adjective(13),
+    "一颗": generic_chinese_quantifier(14),
+    "温柔": generic_predicative_adjective(15), # 作谓语
+    "大度": generic_predicative_adjective(16), # 作谓语
+}
+
 
 ENGLISH_READOUT_RULES = {
 	VERB: [LEX, SUBJ, OBJ, PREP_P, ADVERB, ADJ],
@@ -335,6 +461,20 @@ RUSSIAN_READOUT_RULES = {
 	DAT: [LEX],
 	LEX: [],
 }
+
+CHINESE_READOUT_RULES = {
+    VERB: [LEX, SUBJ, OBJ, PRED, ADVERB, ADJ],
+    SUBJ: [LEX, ADJ, QUANT],
+    OBJ: [LEX, ADJ, QUANT],
+    PRED: [LEX, ADJ, QUANT],
+    ADJ: [LEX],
+    ADVERB: [LEX],
+    QUANT: [LEX],
+    LEX: []
+}
+
+CHINESE_AREAS = [LEX, SUBJ, OBJ, VERB, ADJ, ADVERB, QUANT, PRED]
+CHINESE_RECURRENT_AREAS = [SUBJ, OBJ, VERB, ADJ, ADVERB, QUANT, PRED]
 
 class ParserBrain(brain.Brain):
 	def __init__(self, p, lexeme_dict={}, all_areas=[], recurrent_areas=[], initial_areas=[], readout_rules={}):
@@ -455,8 +595,8 @@ class ParserBrain(brain.Brain):
 					pruned_activated_fibers[from_area].add(to_area)
 
 		# Transitive reduction: if A->C and C->B, remove A->B
-		# This helps remove redundant connections, e.g. VERB->ADJ when VERB->OBJ->ADJ exists
-		# (like in "dogs are big cats")
+		# This helps remove redundant connections, e.g. VERB->ADJ when VERB->PRED->ADJ exists
+		# (like in "我并非愚蠢的人类" - the VERB->ADJ is redundant because PRED->ADJ exists)
 		for area in list(pruned_activated_fibers.keys()):
 			targets = list(pruned_activated_fibers[area])
 			for target_b in targets:
@@ -572,7 +712,46 @@ class EnglishParserBrain(ParserBrain):
 		# If nothing matched, at least we can see that in the parse output.
 		return "<NON-WORD>"
 
+class ChineseParserBrain(ParserBrain):
+    def __init__(self, p, non_LEX_n=10000, non_LEX_k=100, LEX_k=20, 
+        default_beta=0.2, LEX_beta=1.0, recurrent_beta=0.05, interarea_beta=0.5, verbose=False):
+        ParserBrain.__init__(self, p, 
+            lexeme_dict=CHINESE_LEXEME_DICT, 
+            all_areas=CHINESE_AREAS, 
+            recurrent_areas=CHINESE_RECURRENT_AREAS, 
+            initial_areas=[LEX, SUBJ, VERB],
+            readout_rules=CHINESE_READOUT_RULES)
+        self.verbose = verbose
 
+        LEX_n = LEX_SIZE * LEX_k
+        self.add_explicit_area(LEX, LEX_n, LEX_k, default_beta)
+
+        QUANT_k = LEX_k
+        self.add_area(SUBJ, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(OBJ, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(VERB, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(ADJ, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(ADVERB, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(PRED, non_LEX_n, non_LEX_k, default_beta)
+        self.add_area(QUANT, non_LEX_n, QUANT_k, default_beta)
+
+        custom_plasticities = defaultdict(list)
+        for area in CHINESE_RECURRENT_AREAS:
+            custom_plasticities[LEX].append((area, LEX_beta))
+            custom_plasticities[area].append((LEX, LEX_beta))
+            custom_plasticities[area].append((area, recurrent_beta))
+            for other_area in CHINESE_RECURRENT_AREAS:
+                if other_area == area:
+                    continue
+                custom_plasticities[area].append((other_area, interarea_beta))
+
+        self.update_plasticities(area_update_map=custom_plasticities)
+
+    def getProjectMap(self):
+        proj_map = ParserBrain.getProjectMap(self)
+        if LEX in proj_map and len(proj_map[LEX]) > 2:
+            raise Exception("Got that LEX projecting into many areas: " + str(proj_map[LEX]))
+        return proj_map
 
 class ParserDebugger():
 	def __init__(self, brain, all_areas, explicit_areas):
@@ -678,8 +857,8 @@ class ReadoutMethod(Enum):
 
 
 
-def parse(sentence="dogs are bad cats", language="English", p=0.1, LEX_k=20, 
-	project_rounds=20, verbose=False, debug=False, readout_method=ReadoutMethod.FIBER_READOUT):
+def parse(sentence="cats chase mice", language="English", p=0.1, LEX_k=20, 
+	project_rounds=20, verbose=True, debug=False, readout_method=ReadoutMethod.FIBER_READOUT):
 
 	if language == "English":
 		b = EnglishParserBrain(p, LEX_k=LEX_k, verbose=verbose)
@@ -695,20 +874,38 @@ def parse(sentence="dogs are bad cats", language="English", p=0.1, LEX_k=20,
 		explicit_areas = RUSSIAN_EXPLICIT_AREAS
 		readout_rules = RUSSIAN_READOUT_RULES
 
+	if language == "Chinese":
+		b = ChineseParserBrain(p, LEX_k=LEX_k, verbose=verbose)
+		lexeme_dict = CHINESE_LEXEME_DICT
+		all_areas = CHINESE_AREAS
+		explicit_areas = EXPLICIT_AREAS
+		readout_rules = CHINESE_READOUT_RULES
+
 	parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug, 
-		lexeme_dict, all_areas, explicit_areas, readout_method, readout_rules)
+		lexeme_dict, all_areas, explicit_areas, readout_method, readout_rules, language)
 
 
 def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug, 
-	lexeme_dict, all_areas, explicit_areas, readout_method, readout_rules):
+	lexeme_dict, all_areas, explicit_areas, readout_method, readout_rules, language="English"):
 	debugger = ParserDebugger(b, all_areas, explicit_areas)
 
-	sentence = sentence.split(" ")
+	if language == "Chinese":
+		for word in lexeme_dict:
+			jieba.add_word(word)
+		jieba.suggest_freq(('踢', '球'), True)
+		sentence = jieba.lcut(sentence)
+	else:
+		sentence = sentence.split(" ")
 
 	extreme_debug = False
 
 	for word in sentence:
-		lexeme = lexeme_dict[word]
+		try:
+			lexeme = lexeme_dict[word]
+		except KeyError:
+			print(f"KeyError: Word '{word}' not found in dictionary.")
+			print(f"Segmented sentence: {sentence}")
+			raise
 		b.activateWord(LEX, word)
 		if verbose:
 			print("Activated word: " + word)
@@ -776,7 +973,8 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 				continue
 			b.project({}, {to_area: [LEX]})
 			other_word = b.getWord(LEX)
-			dependencies.append([this_word, other_word, to_area])
+			if other_word: # Only add dependency if a valid word is found
+				dependencies.append([this_word, other_word, to_area])
 
 		for to_area in to_areas:
 			if to_area != LEX:
@@ -820,37 +1018,27 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 	# pptree.print_tree(root)
 
 
-def main():
-    parse()
+def test_chinese():
+    test_cases = [
+        "我无可奈何地红温了",
+        "我并非人类",
+        "我踢球",
+        "你真善良",
+        "愚蠢的我并非人类",
+		"愚蠢的我踢球",
+		"我并非人类",
+		"我并非愚蠢的",
+		"我并非愚蠢的人类",
+        "我踢硬邦邦的球",
+		"聪明的我并非愚蠢的人类",
+		"愚蠢的我踢硬邦邦的球",
+        "愚蠢的我愤怒地踢一颗硬邦邦的球",
+        "你真温柔善良大度"
+    ]
+    for sentence in test_cases:
+        print(f"正在解析: {sentence}")
+        parse(sentence, language="Chinese", verbose=False)
+        print("-" * 30)
 
 if __name__ == "__main__":
-    main()
-
-
-# TODOs
-# BRAIN
-# fix brain.py to work when no-assembly areas are projected in 
-
-# PARSER IMPLEMENTATION
-# Factor out debugger of parse
-# Factor out read-out, possibly other aspects of parse
-# consider areas where only A->B needed not A<->B, easy to fix
-# for example, SUBJ/OBJ->DET, etc?
-
-# PARSER CONCEPTUAL
-# 1) NATURAL READ OUT: 
-	# "Fiber-activation read out": Remember fibers that were activated
-	# "Lexical-item read out": Get word from V, see rules (not sufficient but recovers basic structure)
-
-# 2) PREP area: of, others
-# "brand of toys", to merge brand<->of<->toys, look for activated noun areas
-# for example if OBJ is the only one, we're done
-# if multiple, recency? (first instance of lookahead/memory!)
-
-# 3) Intransitive verbs (in particular wrt read out)
-
-# RESEARCH IDEAS
-# 1) Russian experiment (free word order)
-# 2) Grammaticality, detect some sort of error for non-grammatical
-
-
+    test_chinese()

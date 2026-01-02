@@ -135,6 +135,14 @@ class Brain:
     # For debugging purposes in applications (eg. language)
     self._use_normal_ppf = False
 
+  @property
+  def areas(self):
+    return self.area_by_name
+
+  @property
+  def stimuli_connectomes(self):
+    return self.connectomes_by_stimulus
+
   def add_stimulus(self, stimulus_name, size):
     """Add a stimulus to the current instance.
 
@@ -247,8 +255,13 @@ class Brain:
     self.area_by_name[to_area].beta_by_area[from_area] = new_beta
 
   def update_plasticities(self,
-                          area_update_map=EMPTY_MAPPING,
-                          stim_update_map=EMPTY_MAPPING):
+                          area_update_map=None,
+                          stim_update_map=None):
+    if area_update_map is None:
+      area_update_map = EMPTY_MAPPING
+    if stim_update_map is None:
+      stim_update_map = EMPTY_MAPPING
+
     # area_update_map consists of area1: list[ (area2, new_beta) ]
     # represents new plasticity FROM area2 INTO area1
     for to_area, update_rules in area_update_map.items():

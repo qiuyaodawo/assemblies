@@ -13,15 +13,15 @@ def fixed_assembly_test(n=100000,k=317,p=0.01,beta=0.01):
 	b.add_stimulus("stim",k)
 	b.add_area("A",n,k,beta)
 	b.project({"stim":["A"]},{})
-	for i in xrange(3):
+	for i in range(3):
 		b.project({"stim":["A"]},{"A":["A"]})
 		print(b.areas["A"].w)
 	b.areas["A"].fix_assembly()
-	for i in xrange(5):
+	for i in range(5):
 		b.project({"stim":["A"]},{"A":["A"]})
 		print(b.areas["A"].w)
 	b.areas["A"].unfix_assembly()
-	for i in xrange(5):
+	for i in range(5):
 		b.project({"stim":["A"]},{"A":["A"]})
 		print(b.areas["A"].w)
 
@@ -91,5 +91,13 @@ def explicit_assembly_recurrent():
 	b.add_explicit_area("A",100,10,beta=0.5)
 
 	b.areas["A"].winners = list(range(60,70))
+
+if __name__ == "__main__":
+	print("Running fixed_assembly_test...")
+	fixed_assembly_test()
+	print("\nRunning explicit_assembly_test...")
+	explicit_assembly_test()
+	print("\nRunning explicit_assembly_test2...")
+	explicit_assembly_test2()
 
 
