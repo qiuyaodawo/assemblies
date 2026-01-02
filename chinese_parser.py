@@ -156,7 +156,7 @@ def generic_adverb(index):
 		],
 		"POST_RULES": [
 		FiberRule(INHIBIT, LEX, ADVERB, 0),
-		AreaRule(INHIBIT, ADVERB, 1),
+		#AreaRule(INHIBIT, ADVERB, 1),
 		]
 
 	}
@@ -408,6 +408,7 @@ def generic_chinese_quantifier(index):
 def generic_predicative_adjective(index):
     return {
         "index": index,
+        "IS_PREDICATIVE_ADJ": True,  # 标记为谓语形容词，支持并列结构
         "PRE_RULES": [
             FiberRule(DISINHIBIT, LEX, VERB, 0),
             FiberRule(DISINHIBIT, VERB, SUBJ, 0),
@@ -416,8 +417,9 @@ def generic_predicative_adjective(index):
         ],
         "POST_RULES": [
             FiberRule(INHIBIT, LEX, VERB, 0),
-            AreaRule(INHIBIT, SUBJ, 0),
-            AreaRule(INHIBIT, ADVERB, 0),
+            # 不抑制 SUBJ 和 ADVERB，让后续并列形容词也能连接
+            # AreaRule(INHIBIT, SUBJ, 0),
+            # AreaRule(INHIBIT, ADVERB, 0),
         ]
     }
 
@@ -898,6 +900,12 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 		sentence = sentence.split(" ")
 
 	extreme_debug = False
+	
+	# 跟踪并列的谓语形容词
+	predicative_adjs = []
+	# 跟踪主语和副词词汇（用于并列谓语形容词的依赖生成）
+	subj_word = None
+	adverb_word = None
 
 	for word in sentence:
 		try:
@@ -906,6 +914,11 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 			print(f"KeyError: Word '{word}' not found in dictionary.")
 			print(f"Segmented sentence: {sentence}")
 			raise
+		
+		# 记录谓语形容词
+		if lexeme.get("IS_PREDICATIVE_ADJ", False):
+			predicative_adjs.append(word)
+		
 		b.activateWord(LEX, word)
 		if verbose:
 			print("Activated word: " + word)
@@ -925,6 +938,12 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 				b.area_by_name[area].winners = []
 				if verbose:
 					print("ERASED assembly because LEX->this area in " + area)
+		
+		# 记录主语和副词（用于并列谓语形容词）
+		if SUBJ in proj_map.get(LEX, set()):
+			subj_word = word
+		if ADVERB in proj_map.get(LEX, set()):
+			adverb_word = word
 
 		proj_map = b.getProjectMap()
 		if verbose:
@@ -967,12 +986,16 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 		to_areas = mapping[area]
 		b.project({}, {area: to_areas})
 		this_word = b.getWord(LEX)
+		if this_word is None:
+			this_word = b.getWord(LEX, min_overlap=0.4)
 
 		for to_area in to_areas:
 			if to_area == LEX:
 				continue
 			b.project({}, {to_area: [LEX]})
 			other_word = b.getWord(LEX)
+			if other_word is None:
+				other_word = b.getWord(LEX, min_overlap=0.4)
 			if other_word: # Only add dependency if a valid word is found
 				dependencies.append([this_word, other_word, to_area])
 
@@ -1009,6 +1032,35 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 			print(activated_fibers)
 
 		read_out(VERB, activated_fibers)
+		
+		# 处理并列的谓语形容词：为每个形容词生成与主语、副词的依赖
+		if len(predicative_adjs) > 1:
+			last_adj = predicative_adjs[-1]# 获取最后一个形容词，例如 "大度"
+            
+            # 1. 提取最后一个形容词建立的依赖关系作为模板
+			subj_target = None
+			adverb_target = None
+            
+			for dep in dependencies:
+                # dep 格式: [head, dependent, area_name]
+                # 寻找: 大度 -> 你 (SUBJ)
+				if dep[0] == last_adj and dep[2] == SUBJ:
+					subj_target = dep[1]
+                # 寻找: 大度 -> 真 (ADVERB)
+				elif dep[0] == last_adj and dep[2] == ADVERB:
+					adverb_target = dep[1]
+            
+            # 2. 将这些依赖关系复制给前面的形容词 (温柔, 善良)
+            # 只有当确实找到了主语或副词时才复制
+			if subj_target or adverb_target:
+				for adj in predicative_adjs[:-1]:
+					if subj_target:
+                        # 检查是否已经存在（避免重复）
+						if not any(d[0] == adj and d[1] == subj_target and d[2] == SUBJ for d in dependencies):
+							dependencies.append([adj, subj_target, SUBJ])
+						if adverb_target:
+							if not any(d[0] == adj and d[1] == adverb_target and d[2] == ADVERB for d in dependencies):
+								dependencies.append([adj, adverb_target, ADVERB])
 		print("Got dependencies: ")
 		print(dependencies)
 
