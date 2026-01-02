@@ -1035,32 +1035,42 @@ def parseHelper(b, sentence, p, LEX_k, project_rounds, verbose, debug,
 		
 		# 处理并列的谓语形容词：为每个形容词生成与主语、副词的依赖
 		if len(predicative_adjs) > 1:
-			last_adj = predicative_adjs[-1]# 获取最后一个形容词，例如 "大度"
-            
-            # 1. 提取最后一个形容词建立的依赖关系作为模板
-			subj_target = None
-			adverb_target = None
-            
+			# 1. 寻找共用的主语和副词模板
+			# 逻辑变更：不再只看最后一个词，而是扫描所有并列词。
+			# 只要有一个词成功连接到了 SUBJ 或 ADVERB，我们就认为这个关系对所有人都有效。
+			
+			shared_subj = None
+			shared_adverb = None
+			
+			# 第一轮扫描：在现有的依赖关系中寻找线索
 			for dep in dependencies:
-                # dep 格式: [head, dependent, area_name]
-                # 寻找: 大度 -> 你 (SUBJ)
-				if dep[0] == last_adj and dep[2] == SUBJ:
-					subj_target = dep[1]
-                # 寻找: 大度 -> 真 (ADVERB)
-				elif dep[0] == last_adj and dep[2] == ADVERB:
-					adverb_target = dep[1]
-            
-            # 2. 将这些依赖关系复制给前面的形容词 (温柔, 善良)
-            # 只有当确实找到了主语或副词时才复制
-			if subj_target or adverb_target:
-				for adj in predicative_adjs[:-1]:
-					if subj_target:
-                        # 检查是否已经存在（避免重复）
-						if not any(d[0] == adj and d[1] == subj_target and d[2] == SUBJ for d in dependencies):
-							dependencies.append([adj, subj_target, SUBJ])
-						if adverb_target:
-							if not any(d[0] == adj and d[1] == adverb_target and d[2] == ADVERB for d in dependencies):
-								dependencies.append([adj, adverb_target, ADVERB])
+				head_word, target_word, relation_type = dep
+				
+				# 如果这个依赖关系的头词在我们的并列形容词列表中
+				if head_word in predicative_adjs:
+					if relation_type == SUBJ and shared_subj is None:
+						shared_subj = target_word
+					elif relation_type == ADVERB and shared_adverb is None:
+						shared_adverb = target_word
+			
+			# 2. 将找到的共用关系“广播”给每一个并列形容词
+			if shared_subj or shared_adverb:
+				for adj in predicative_adjs:
+					# 补全主语
+					if shared_subj:
+						# 检查是否已经存在该关系，避免重复
+						relation_exists = any(d[0] == adj and d[1] == shared_subj and d[2] == SUBJ for d in dependencies)
+						if not relation_exists:
+							dependencies.append([adj, shared_subj, SUBJ])
+							
+					# 补全副词
+					if shared_adverb:
+						relation_exists = any(d[0] == adj and d[1] == shared_adverb and d[2] == ADVERB for d in dependencies)
+						if not relation_exists:
+							dependencies.append([adj, shared_adverb, ADVERB])
+
+		# 结果排序，让输出稳定且易读
+		dependencies.sort(key=lambda x: (x[0], x[2]))
 		print("Got dependencies: ")
 		print(dependencies)
 
